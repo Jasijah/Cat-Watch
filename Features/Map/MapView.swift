@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import SwiftData
 
 struct MapView: View {
     @EnvironmentObject private var repository: IncidentRepository
@@ -21,6 +22,7 @@ struct MapView: View {
                             .foregroundStyle(Theme.Colors.redGlow)
                             .glowAccent(radius: 8)
                     }
+                    .accessibilityLabel("Open details for \(incident.title)")
                 }
             }
             .mapStyle(.standard(elevation: .realistic))
@@ -35,6 +37,10 @@ struct MapView: View {
 
 private struct IncidentDetailSheet: View {
     @EnvironmentObject private var repository: IncidentRepository
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @State private var noteText: String = ""
+
     let incident: Incident
 
     var body: some View {
@@ -56,14 +62,79 @@ private struct IncidentDetailSheet: View {
                     PrimaryButton(title: incident.isSaved ? "Remove from Watchlist" : "Save", systemImage: "star") {
                         repository.toggleSaved(incident)
                     }
-                    PrimaryButton(title: "Share Brief", systemImage: "square.and.arrow.up") { }
-                    PrimaryButton(title: "Navigate", systemImage: "arrow.triangle.turn.up.right.diamond") { }
-                    PrimaryButton(title: "Add Note", systemImage: "note.text") { }
-                    PrimaryButton(title: "Add to Checklist", systemImage: "checkmark.circle") { }
+
+                    ShareLink(item: shareBrief) {
+                        Label("Share Brief", systemImage: "square.and.arrow.up")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, Theme.Spacing.md)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous)
+                            .stroke(Theme.Colors.redGlow.opacity(0.35), lineWidth: 1)
+                    )
+
+                    Link(destination: navigationURL) {
+                        Label("Navigate", systemImage: "arrow.triangle.turn.up.right.diamond")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, Theme.Spacing.md)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.button, style: .continuous)
+                            .stroke(Theme.Colors.redGlow.opacity(0.35), lineWidth: 1)
+                    )
+
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                            Text("Quick Note")
+                                .font(.headline)
+                            TextField("Add a field note", text: $noteText, axis: .vertical)
+                                .textFieldStyle(.roundedBorder)
+                            PrimaryButton(title: "Add Note", systemImage: "note.text") {
+                                addNote()
+                            }
+                        }
+                    }
+
+                    PrimaryButton(title: "Add to Checklist", systemImage: "checkmark.circle") {
+                        modelContext.insert(ChecklistItem(title: "Deploy to \(incident.city)", incidentID: incident.id))
+                        try? modelContext.save()
+                        dismiss()
+                    }
                 }
                 .padding()
             }
             .navigationTitle("Incident Detail")
         }
+    }
+
+    private var navigationURL: URL {
+        URL(string: "http://maps.apple.com/?ll=\(incident.latitude),\(incident.longitude)")!
+    }
+
+    private var shareBrief: String {
+        """
+        CATWatch Brief
+        Incident: \(incident.title)
+        Type: \(incident.type.rawValue.capitalized)
+        Severity: \(incident.severity.rawValue.capitalized)
+        Area: \(incident.affectedArea)
+        City: \(incident.city)
+        Updated: \(incident.lastUpdated.formatted(date: .abbreviated, time: .shortened))
+        Source: \(incident.sourceLabel)
+        """
+    }
+
+    private func addNote() {
+        let trimmed = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        modelContext.insert(Note(incidentID: incident.id, text: trimmed))
+        try? modelContext.save()
+        noteText = ""
     }
 }

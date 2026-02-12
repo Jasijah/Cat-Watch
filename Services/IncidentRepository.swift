@@ -25,14 +25,36 @@ final class IncidentRepository: ObservableObject {
         do {
             let remote = try await sourceAdapter.fetchIncidents()
             let existing = try context.fetch(FetchDescriptor<Incident>())
-            for row in existing {
-                context.delete(row)
+            let existingByID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+
+            for incoming in remote {
+                if let stored = existingByID[incoming.id] {
+                    // Preserve local user state while refreshing server fields.
+                    let savedState = stored.isSaved
+                    stored.title = incoming.title
+                    stored.type = incoming.type
+                    stored.severity = incoming.severity
+                    stored.latitude = incoming.latitude
+                    stored.longitude = incoming.longitude
+                    stored.city = incoming.city
+                    stored.affectedArea = incoming.affectedArea
+                    stored.sourceLabel = incoming.sourceLabel
+                    stored.lastUpdated = incoming.lastUpdated
+                    stored.details = incoming.details
+                    stored.isSaved = savedState
+                } else {
+                    context.insert(incoming)
+                }
             }
-            for incident in remote {
-                context.insert(incident)
+
+            let incomingIDs = Set(remote.map(\.id))
+            for item in existing where !incomingIDs.contains(item.id) {
+                context.delete(item)
             }
+
             try context.save()
-            incidents = remote.sorted(by: { $0.lastUpdated > $1.lastUpdated })
+            incidents = ((try? context.fetch(FetchDescriptor<Incident>())) ?? [])
+                .sorted(by: { $0.lastUpdated > $1.lastUpdated })
             lastUpdated = .now
             staleData = false
         } catch {
